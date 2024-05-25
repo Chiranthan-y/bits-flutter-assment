@@ -1,0 +1,206 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:parse_server_sdk_flutter/parse_server_sdk.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final keyApplicationId = 'YOUR_APP_ID'; // Replace with your App ID
+  final keyClientKey = 'YOUR_CLIENT_KEY'; // Replace with your Client Key
+  final keyParseServerUrl = 'https://parseapi.back4app.com'; 
+
+  await Parse().initialize(
+    keyApplicationId,
+    keyParseServerUrl,
+    clientKey: keyClientKey,
+    autoSendSessionId: true,
+    debug: true,
+  );
+
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Quick Task',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+      ),
+      home: TaskListScreen(),
+    );
+  }
+}
+
+class Task {
+  String id;
+  String title;
+  DateTime dueDate;
+  bool isCompleted;
+
+  Task({required this.id, required this.title, required this.dueDate, required this.isCompleted});
+
+  factory Task.fromMap(Map<String, dynamic> map) {
+    return Task(
+      id: map['objectId'] as String, 
+      title: map['title'] as String, 
+      dueDate: DateTime.parse(map['dueDate']),
+      isCompleted: map['isCompleted'] as bool,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'title': title,
+      'dueDate': dueDate.toIso8601String(),
+      'isCompleted': isCompleted,
+    };
+  }
+}
+
+class TaskListScreen extends StatefulWidget {
+  const TaskListScreen({super.key}); // Added const constructor
+  @override
+  State<TaskListScreen> createState() => _TaskListScreenState();
+}
+
+class _TaskListScreenState extends State<TaskListScreen> {
+  List<Task> tasks = [];
+
+  bool isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchTasksFromParse();
+}
+
+  Future<List<Task>> fetchTasksFromParse() async {
+  final queryBuilder = QueryBuilder<ParseObject>(ParseObject('Task'));
+    setState(() {
+      isLoading = true;
+    });
+
+    final queryBuilder = QueryBuilder<ParseObject>(ParseObject('Task'));
+    final response = await queryBuilder.query();
+
+    if (response.success && response.results != null) {
+      setState(() {
+        tasks = response.results!.map((item) {
+          return Task.fromMap(item.getObjectData());
+        }).toList();
+        isLoading = false;
+      });
+    } else {
+      setState(() {
+        isLoading = false;
+      });
+      // Handle error if response is not successful
+    }
+  }
+
+  Future<void> toggleTaskStatus(Task task) async {
+    task.isCompleted = !task.isCompleted;
+
+    final parseObject = ParseObject('Task')
+      ..objectId = task.id
+      ..set('isCompleted', task.isCompleted);
+
+    await parseObject.save();
+    fetchTasks();
+  }
+
+  void navigateToAddTask(BuildContext context) async {
+    final newTask = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => AddTaskScreen()),
+    );
+    if (newTask != null) {
+      await addTask(newTask);
+      fetchTasks();
+    }
+  }
+
+  void navigateToEditTask(BuildContext context, Task task) async {
+    final updatedTask = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => EditTaskScreen(task: task)),
+    );
+    if (updatedTask != null) {
+      await updateTask(updatedTask);
+      fetchTasks();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Task Manager'),
+      ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: tasks.length,
+              itemBuilder: (context, index) {
+                final task = tasks[index];
+                return Dismissible(
+                  key: Key(task.id), 
+                  onDismissed: (_) async {
+                    await deleteTask(task.id);
+                    fetchTasks(); 
+                  },
+                  child: ListTile(
+                    title: Text(
+                      task.title,
+                      style: TextStyle(
+                        decoration: task.isCompleted
+                            ? TextDecoration.lineThrough
+                            : null,
+                      ),
+                    ),
+                    subtitle: Text(
+                        DateFormat.yMMMd().add_jm().format(task.dueDate)),
+                    trailing: Checkbox(
+                      value: task.isCompleted,
+                      onChanged: (_) => toggleTaskStatus(task),
+                    ),
+                    onTap: () => navigateToEditTask(context, task),
+                  ),
+                );
+              },
+            ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => navigateToAddTask(context),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+Future<void> addTask(Task task) async {
+  final taskObject = ParseObject('Task')
+    ..set('title', task.title)
+    ..set('dueDate', task.dueDate.toIso8601String())
+    ..set('isCompleted', task.isCompleted);
+  await taskObject.save();
+}
+
+Future<void> updateTask(Task task) async {
+  final taskObject = ParseObject('Task')
+    ..objectId = task.id
+    ..set('title', task.title)
+    ..set('dueDate', task.dueDate.toIso8601String())
+    ..set('isCompleted', task.isCompleted);
+  await taskObject.save();
+}
+
+Future<void> deleteTask(String taskId) async {
+  final taskObject = ParseObject('Task')..objectId = taskId;
+  await taskObject.delete();
+}
+
